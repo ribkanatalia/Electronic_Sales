@@ -1,0 +1,247 @@
+CREATE TABLE electronic_sales (
+    Customer_ID INT,
+    Age INT,
+    Gender VARCHAR(10),
+    Loyalty_Member VARCHAR(5),
+    Product_Type VARCHAR(50),
+    SKU VARCHAR(20),
+    Rating INT,
+    Order_Status VARCHAR(20),
+    Payment_Method VARCHAR(20),
+    Total_Price FLOAT,
+    Unit_Price FLOAT,
+    Quantity INT,
+    Purchase_Date DATE,
+    Shipping_Type VARCHAR(20),
+    Add_ons_Purchased VARCHAR(255),
+    Add_on_Total FLOAT
+);
+
+select *
+from electronic_sales;
+
+# checked duplicate data
+with duplicate_cte as
+(
+select *,
+row_number() over(partition by Customer_ID, Age, Gender, Loyalty_Member, Product_Type, SKU, Rating, Order_Status, Payment_Method,
+Total_Price, Unit_Price, Quantity, Purchase_Date, Shipping_Type, Add_ons_Purchased, Add_on_Total) as row_num
+from electronic_sales
+)
+select *
+from duplicate_cte
+where row_num > 1
+;
+
+# checked null / blank / N/A data
+select *
+from electronic_sales
+where Gender = '#N/A';
+
+delete
+from electronic_sales
+where Gender = '#N/A';
+
+
+select *
+from electronic_sales;
+
+alter table electronic_sales 
+add column Total_Order_Value float
+;
+
+update electronic_sales
+set Total_Order_Value = Total_Price + Add_on_Total;
+
+select Order_Status, round(sum(Total_Order_Value),2) as Total_Revenue,
+sum(Quantity) as Total_Products_Sold,
+count(Order_Status) as Total_Customer
+from electronic_sales
+group by Order_Status;
+
+
+select Product_Type, round(sum(Total_Order_Value),2) as Total_Revenue,
+round(avg(Unit_Price),2) as Avg_Product_Price,
+min(Unit_Price) as Min_Product_Price,
+max(Unit_Price) as Max_Product_Price,
+sum(Quantity) as Total_Products_Sold
+from electronic_sales
+where Order_Status = 'Completed'
+group by Product_Type;
+
+select round(avg(Total_Order_Value),2) as Average_Order_Value
+from electronic_sales
+where Order_Status = 'Completed';
+
+select Customer_ID, round(sum(Total_Order_Value),2) as Customer_Lifetime_Value
+from electronic_sales
+where Order_Status = 'Completed'
+group by Customer_ID;
+
+select Customer_ID, COUNT(distinct Purchase_Date) as Purchase_Count
+from electronic_sales
+where Order_Status = 'Completed'
+group by Customer_ID
+having Purchase_Count > 1;
+
+# 1. Sales Performance per Month:
+delimiter $$
+create procedure sales_performance()
+begin
+	select Year(Purchase_Date) as Year, Month(Purchase_Date) as Month,
+	round(Sum(Total_Order_Value),2) as Monthly_Sales,
+		lag(round(Sum(Total_Order_Value),2),1) over(Order by Year(Purchase_Date), Month(Purchase_Date)) as Previous_Month_Sales,
+		round(Sum(Total_Order_Value) - lag(Sum(Total_Order_Value),1) over(Order by Year(Purchase_Date), Month(Purchase_Date)),2) as MoM_Growth
+	from electronic_sales
+	where Order_Status = 'Completed'
+	Group by Year, Month
+	Order by Year, Month;
+end $$
+delimiter ;
+
+call sales_performance();
+
+create view sales_performance as
+select Year(Purchase_Date) as Year, Month(Purchase_Date) as Month,
+round(Sum(Total_Order_Value),2) as Monthly_Sales,
+	lag(round(Sum(Total_Order_Value),2),1) over(Order by Year(Purchase_Date), Month(Purchase_Date)) as Previous_Month_Sales,
+	round(Sum(Total_Order_Value) - lag(Sum(Total_Order_Value),1) over(Order by Year(Purchase_Date), Month(Purchase_Date)),2) as MoM_Growth
+from electronic_sales
+Group by Year, Month
+Order by Year, Month;
+
+# 2. Customer Segmentation:
+delimiter $$
+create procedure customer_segmentation()
+begin
+	select Loyalty_Member, Gender,
+		   COUNT(Customer_ID) as Total_Orders, 
+		   round(sum(Total_Order_Value),2) as Revenue
+	from electronic_sales
+	where Order_Status = 'Completed'
+	group by Loyalty_Member, Gender;
+end $$
+delimiter ;
+
+call customer_segmentation();
+
+create view customer_segmentation as
+select Loyalty_Member, Gender,
+		COUNT(Customer_ID) as Total_Orders, 
+		round(sum(Total_Order_Value),2) as Revenue
+from electronic_sales
+where Order_Status = 'Completed'
+group by Loyalty_Member, Gender;
+
+select Order_Status,
+count(Order_Status)
+from electronic_sales
+group by Order_Status;
+
+select distinct Age, count(distinct Customer_ID)
+from electronic_sales
+Group by Age
+Order by Age;
+
+
+select *
+from electronic_sales;
+
+# 3. Top-Selling Products:
+delimiter $$
+create procedure top_selling_product()
+begin
+	select Product_Type, SKU, round(SUM(Total_Price),2) as Product_Revenue
+	from electronic_sales
+	where Order_Status = 'Completed'
+	group by Product_Type, SKU
+	order by Product_Revenue DESC;
+end $$
+delimiter ;
+
+call top_selling_product();
+
+create view top_selling_product as
+select Product_Type, SKU, round(SUM(Total_Price),2) as Product_Revenue
+from electronic_sales
+where Order_Status = 'Completed'
+group by Product_Type, SKU
+order by Product_Revenue DESC;
+
+select distinct SKU, Product_Type
+from electronic_sales
+Order by Product_Type ASC;
+
+select *
+from electronic_sales;
+
+delimiter $$
+create procedure cancel_products()
+begin
+	select Product_Type, SKU, Order_Status, sum(Quantity) as Quantity_Product, round(sum(Total_Price),2) as Total_Revenue
+	from electronic_sales
+	Group by Product_Type, SKU, Order_Status
+	Order by Product_Type, SKU, Order_Status;
+end $$
+delimiter ;
+
+call cancel_products();
+
+create view cancel_products as
+select Product_Type, SKU, Order_Status, sum(Quantity) as Quantity_Product, round(sum(Total_Price),2) as Total_Revenue
+from electronic_sales
+Group by Product_Type, SKU, Order_Status
+Order by Product_Type, SKU, Order_Status;
+
+# 4. Order Cancellations:
+delimiter $$
+create procedure order_cancel()
+begin
+	select Order_Status, count(*) as Order_Count
+	from electronic_sales
+	group by Order_Status;
+end $$
+delimiter ;
+
+call order_cancel();
+
+create view order_cancel as
+select Order_Status, count(*) as Order_Count
+from electronic_sales
+group by Order_Status;
+
+# 5. Payment Method
+delimiter $$
+create procedure payment_meth()
+begin
+	select Order_Status, Payment_Method, count(*) as Order_Count
+	from electronic_sales
+	group by Order_Status, Payment_Method
+	order by Order_Status, Payment_Method;
+end $$
+delimiter ;
+
+call payment_meth();
+
+create view payment_met as
+select Order_Status, Payment_Method, count(*) as Order_Count
+from electronic_sales
+group by Order_Status, Payment_Method
+order by Order_Status, Payment_Method;
+
+# 6. Shipping Trends:
+delimiter $$
+create procedure shipping()
+begin
+	select Shipping_Type, round(avg(Rating),2) as Avg_Customer_Rating
+	from electronic_sales
+	group by Shipping_Type;
+end $$
+delimiter ;
+
+call shipping();
+
+create view shipping as
+select Shipping_Type, round(avg(Rating),2) as Avg_Customer_Rating
+from electronic_sales
+group by Shipping_Type;
